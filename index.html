@@ -64,9 +64,9 @@
 <body class="h-screen flex flex-col overflow-hidden text-gray-800 relative">
 
     <!-- LOADING OVERLAY -->
-    <div id="loading-overlay" class="fixed inset-0 bg-white/90 z-[100] flex flex-col justify-center items-center backdrop-blur-sm transition-opacity duration-300">
-        <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-indo-blue mb-4"></div>
-        <p class="text-indo-blue font-bold tracking-widest animate-pulse">LOADING APP...</p>
+    <div id="loading-overlay" class="fixed inset-0 bg-white/90 z-[100] flex flex-col justify-center items-center backdrop-blur-sm transition-opacity duration-75">
+        <div class="animate-spin rounded-full h-12 w-12 border-t-4 border-b-4 border-indo-blue mb-3"></div>
+        <p class="text-indo-blue font-black tracking-widest animate-pulse text-sm">LOADING...</p>
     </div>
 
     <!-- HEADER -->
@@ -222,9 +222,15 @@
                     <h2 class="text-2xl font-black text-gray-800 tracking-tight">Data Produk</h2>
                     <p class="text-sm text-gray-500 mt-1">Kelola inventaris, harga, dan stok barang</p>
                 </div>
-                <button onclick="openProductModal()" class="px-6 py-3 bg-indo-blue text-white rounded-xl font-bold hover:bg-blue-800 transition-all flex items-center gap-2 click-effect">
-                    <i class="fas fa-plus"></i> Tambah Produk
-                </button>
+                <div class="flex gap-3">
+                    <input type="file" id="import-csv" accept=".csv" class="hidden" onchange="handleImportCSV(event)">
+                    <button onclick="document.getElementById('import-csv').click()" class="px-6 py-3 bg-green-500 text-white rounded-xl font-bold hover:bg-green-600 transition-all flex items-center gap-2 click-effect shadow-sm">
+                        <i class="fas fa-file-csv"></i> Import CSV
+                    </button>
+                    <button onclick="openProductModal()" class="px-6 py-3 bg-indo-blue text-white rounded-xl font-bold hover:bg-blue-800 transition-all flex items-center gap-2 click-effect shadow-sm">
+                        <i class="fas fa-plus"></i> Tambah Produk
+                    </button>
+                </div>
             </div>
             <div class="flex-1 overflow-y-auto p-8">
                 <div class="bg-white rounded-2xl border border-gray-200 overflow-hidden">
@@ -433,7 +439,7 @@
 
                     <div class="flex justify-end pb-10">
                         <button onclick="saveSettings()" class="px-8 py-3 rounded-xl font-bold text-white bg-indo-blue hover:bg-blue-800 transition-colors shadow-lg click-effect flex items-center gap-2">
-                            <i class="fas fa-cloud-upload-alt"></i> Simpan ke Cloud
+                            <i class="fas fa-cloud-upload-alt"></i> Simpan Pengaturan
                         </button>
                     </div>
                 </div>
@@ -596,18 +602,23 @@
             setTimeout(() => { t.classList.remove('translate-y-0', 'opacity-100'); t.classList.add('-translate-y-24', 'opacity-0'); }, 3000);
         }
 
+        // Teks Loading Diubah & Transisi Dipercepat
         function showLoading(show) {
             const overlay = document.getElementById('loading-overlay');
             if(show) { overlay.classList.remove('hidden'); requestAnimationFrame(() => overlay.classList.remove('opacity-0')); }
-            else { overlay.classList.add('opacity-0'); setTimeout(() => overlay.classList.add('hidden'), 300); }
+            else { overlay.classList.add('opacity-0'); setTimeout(() => overlay.classList.add('hidden'), 75); } // Kecepatan tinggi
         }
 
-        async function fetchAPI(action, dataObj = {}) {
+        function clearCartConfirm() { if(cart.length>0) { document.getElementById('confirm-modal').classList.remove('hidden'); setTimeout(()=>document.getElementById('confirm-box').classList.remove('scale-95'),10); document.querySelector('#confirm-box .bg-red-500').setAttribute('onclick','executeClearCart()'); } }
+        function closeConfirmModal() { document.getElementById('confirm-box').classList.add('scale-95'); setTimeout(()=>document.getElementById('confirm-modal').classList.add('hidden'),150); }
+        function executeClearCart() { closeConfirmModal(); resetSistem(); }
+
+        async function fetchAPI(action, dataObj = {}, showLoader = true) {
             if(WEB_APP_URL === "MASUKKAN_URL_GAS_DISINI_YANG_BERAKHIRAN_EXEC") {
-                showToast("Anda belum mengatur URL Google Apps Script!", "error");
+                if(showLoader) showToast("Mode Lokal Aktif (URL Google Sheet belum diatur)", "error");
                 return null;
             }
-            showLoading(true);
+            if(showLoader) showLoading(true);
             try {
                 const response = await fetch(WEB_APP_URL, {
                     method: 'POST',
@@ -615,13 +626,12 @@
                     body: JSON.stringify({ action: action, data: dataObj })
                 });
                 const result = await response.json();
-                showLoading(false);
+                if(showLoader) showLoading(false);
                 if(result.status === 'success') return result.data;
                 else throw new Error(result.message);
             } catch (e) {
-                showLoading(false);
-                showToast("Koneksi Error: " + e.message, 'error');
-                console.error(e);
+                if(showLoader) showLoading(false);
+                console.error("Koneksi Error:", e);
                 return null;
             }
         }
@@ -640,12 +650,10 @@
             document.querySelector('meta[name="apple-mobile-web-app-title"]').setAttribute("content", appSettings.appName);
         }
         
-        // PWA Service Worker (Bypass khusus Chrome installability)
         if ('serviceWorker' in navigator && window.location.protocol !== 'file:') {
             try { 
                 const swBlob = new Blob(["self.addEventListener('install', (e) => self.skipWaiting()); self.addEventListener('activate', (e) => self.clients.claim());"], {type: 'application/javascript'});
-                navigator.serviceWorker.register(URL.createObjectURL(swBlob))
-                    .catch(err => console.log("Service Worker registration skipped:", err.message)); 
+                navigator.serviceWorker.register(URL.createObjectURL(swBlob)).catch(()=>{}); 
             } catch(e) {}
         }
 
@@ -776,14 +784,14 @@
             customCharges.filter(c => c.active).forEach(c => { appliedCharges.push({ name: c.name, lbl: c.isPercent?`(${c.amount}%)`:'', val: c.isPercent?(subtotal*(c.amount/100)):c.amount, isDed: c.isDeduction }); });
             const data = { id: trxId, timestamp: new Date().toISOString(), cashier: activeCashier, items: JSON.parse(JSON.stringify(cart)), subtotal, chargesBreakdown: appliedCharges, total, method: cash > total ? "CASH" : "QRIS", cash: cash, change: cash - total };
             
-            // Simpan ke Cloud
-            const res = await fetchAPI('saveTransaction', data);
-            if(res) {
-                transactionsHistory.unshift(res);
-                cart.forEach(cItem => { let p = currentProducts.find(x => x.sku === cItem.sku); if (p) p.stock -= cItem.qty; }); // Deduct local stock immediately for fast UX
-                generateStrukHTML(data);
-                showSuccessModal(data.total, data.cash, data.change);
-            }
+            // Optimistic UX Update langsung jalan
+            transactionsHistory.unshift(data);
+            cart.forEach(cItem => { let p = currentProducts.find(x => x.sku === cItem.sku); if (p) p.stock -= cItem.qty; }); 
+            generateStrukHTML(data);
+            showSuccessModal(data.total, data.cash, data.change);
+
+            // Simpan ke Cloud diam-diam (Background Sync)
+            fetchAPI('saveTransaction', data, false);
         }
 
         // --- STRUK & MODAL SUKSES ---
@@ -845,9 +853,22 @@
             renderFormCategories(); const box = document.getElementById('product-box');
             if (sku) {
                 const p = currentProducts.find(x => x.sku === sku);
-                document.getElementById('product-modal-title').textContent = 'Edit Produk'; document.getElementById('form-mode').value = 'edit'; document.getElementById('original-sku').value = sku; document.getElementById('form-sku').value = p.sku; document.getElementById('form-name').value = p.name; document.getElementById('form-category').value = p.category; document.getElementById('form-price').value = p.price; document.getElementById('form-stock').value = p.stock;
+                document.getElementById('product-modal-title').textContent = 'Edit Produk'; 
+                document.getElementById('form-mode').value = 'edit'; 
+                document.getElementById('original-sku').value = sku; 
+                document.getElementById('form-sku').value = p.sku; 
+                document.getElementById('form-name').value = p.name; 
+                document.getElementById('form-category').value = p.category; 
+                document.getElementById('form-price').value = p.price; 
+                document.getElementById('form-stock').value = p.stock;
             } else {
-                document.getElementById('product-modal-title').textContent = 'Tambah Produk'; document.getElementById('form-mode').value = 'add'; document.getElementById('form-sku').value = ''; document.getElementById('form-name').value = ''; document.getElementById('form-price').value = ''; document.getElementById('form-stock').value = '';
+                document.getElementById('product-modal-title').textContent = 'Tambah Produk'; 
+                document.getElementById('form-mode').value = 'add'; 
+                // SKU AUTO RANDOM (8 Digit)
+                document.getElementById('form-sku').value = Math.floor(10000000 + Math.random() * 90000000).toString(); 
+                document.getElementById('form-name').value = ''; 
+                document.getElementById('form-price').value = ''; 
+                document.getElementById('form-stock').value = '';
             }
             document.getElementById('product-modal').classList.remove('hidden'); setTimeout(() => box.classList.remove('scale-95'), 10);
         }
@@ -860,12 +881,20 @@
             let pData = { sku, name, category: cat, price: pr, stock: st };
             if (m === 'edit') pData.oriSku = ori;
 
-            const res = await fetchAPI('saveProduct', pData);
-            if(res) {
-                currentProducts = res;
-                if(m === 'edit') { cart.forEach(i => { if(i.sku===ori) { i.sku=sku; i.name=name; i.price=pr; }}); updateCartUI(); }
-                closeProductModal(); renderManageProducts(); showToast('Disimpan ke Cloud', 'success');
+            // Update Optimistic UI Langsung Cepat
+            if (m === 'add') {
+                if(currentProducts.some(p => p.sku === sku)) return showToast('SKU sudah ada', 'error');
+                currentProducts.unshift(pData);
+            } else {
+                if(sku !== ori && currentProducts.some(p => p.sku === sku)) return showToast('SKU sudah ada', 'error');
+                const idx = currentProducts.findIndex(p => p.sku === ori);
+                if(idx > -1) { currentProducts[idx] = pData; cart.forEach(i => { if(i.sku===ori) { i.sku=sku; i.name=name; i.price=pr; }}); updateCartUI(); }
             }
+            
+            closeProductModal(); renderManageProducts(); filterProducts(); showToast('Tersimpan', 'success');
+
+            // Background Sync tanpa mengganggu UI
+            fetchAPI('saveProduct', pData, false);
         }
         
         let skuToDel = null;
@@ -875,12 +904,66 @@
             box.querySelector('.bg-red-500').setAttribute('onclick', 'executeDeleteProduct()');
             document.getElementById('confirm-modal').classList.remove('hidden'); setTimeout(() => box.classList.remove('scale-95'), 10);
         }
+        
         async function executeDeleteProduct() {
             closeConfirmModal();
             if(skuToDel) { 
-                const res = await fetchAPI('deleteProduct', {sku: skuToDel});
-                if(res) { currentProducts = res; cart = cart.filter(i => i.sku !== skuToDel); updateCartUI(); renderManageProducts(); showToast('Terhapus dari Cloud', 'success'); }
+                // Optimistic Update Langsung Cepat (Tombol Hapus 100% Aktif)
+                currentProducts = currentProducts.filter(p => p.sku !== skuToDel); 
+                cart = cart.filter(i => i.sku !== skuToDel); 
+                updateCartUI(); 
+                renderManageProducts(); 
+                filterProducts();
+                showToast('Produk Terhapus', 'success');
+                
+                // Background Sync
+                fetchAPI('deleteProduct', {sku: skuToDel}, false);
             }
+        }
+
+        // IMPORT CSV
+        function handleImportCSV(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            showLoading(true);
+            const reader = new FileReader();
+            reader.onload = async function(evt) {
+                const text = evt.target.result;
+                const rows = text.split(/\r?\n/);
+                let count = 0;
+                for (let i = 1; i < rows.length; i++) { // Lewati baris 1 (header)
+                    const row = rows[i].trim();
+                    if (!row) continue;
+                    // Deteksi separator ; atau , otomatis
+                    const delimiter = row.includes(';') ? ';' : ','; 
+                    const cols = row.split(delimiter);
+                    if (cols.length >= 5) {
+                        const sku = cols[0].trim();
+                        const name = cols[1].trim();
+                        const cat = cols[2].trim() || 'Umum';
+                        const price = parseFloat(cols[3].trim());
+                        const stock = parseInt(cols[4].trim());
+                        
+                        if (sku && name && !isNaN(price) && !isNaN(stock)) {
+                            const idx = currentProducts.findIndex(p => p.sku === sku);
+                            if (idx > -1) {
+                                currentProducts[idx] = { sku, name, category: cat, price, stock };
+                            } else {
+                                currentProducts.push({ sku, name, category: cat, price, stock });
+                            }
+                            // Push ke background
+                            fetchAPI('saveProduct', { sku, name, category: cat, price, stock }, false);
+                            count++;
+                        }
+                    }
+                }
+                renderManageProducts();
+                filterProducts();
+                showLoading(false);
+                showToast(`${count} Produk berhasil diimpor!`, 'success');
+                e.target.value = ''; // reset input
+            };
+            reader.readAsText(file);
         }
 
         // KELOLA ADMIN (CLOUD)
@@ -895,14 +978,16 @@
             const id = document.getElementById('admin-id').value.trim(), name = document.getElementById('admin-name').value.trim(), role = document.getElementById('admin-role').value;
             if(!id||!name) return showToast('Lengkapi data', 'error');
             admins.push({id, name, role}); 
-            const res = await fetchAPI('saveConfig', {key: 'admins', value: admins});
-            if(res) { renderActiveCashierSelect(); closeAdminModal(); renderAdmins(); showToast('Admin Disimpan', 'success'); }
+            
+            renderActiveCashierSelect(); closeAdminModal(); renderAdmins(); showToast('Admin Disimpan', 'success');
+            fetchAPI('saveConfig', {key: 'admins', value: admins}, false);
         }
         async function deleteAdmin(i) { 
             if(admins.length <= 1) return showToast('Minimal harus ada 1 Admin', 'error');
             admins.splice(i, 1); 
-            const res = await fetchAPI('saveConfig', {key: 'admins', value: admins});
-            if(res) { renderActiveCashierSelect(); renderAdmins(); showToast('Admin Dihapus', 'success'); }
+            
+            renderActiveCashierSelect(); renderAdmins(); showToast('Admin Dihapus', 'success');
+            fetchAPI('saveConfig', {key: 'admins', value: admins}, false);
         }
 
         // REKAP
@@ -940,11 +1025,8 @@
             const n = document.getElementById('set-app-name').value.trim(); if(!n) return showToast('Nama wajib isi', 'error');
             appSettings.appName = n; appSettings.appHeader = document.getElementById('set-app-desc').value.trim(); appSettings.receiptFooter = document.getElementById('set-receipt-footer').value.trim(); 
             
-            const res = await fetchAPI('saveConfig', {key: 'settings', value: appSettings});
-            if(res) {
-                updateHeaderUI(); updatePWA();
-                showToast('Pengaturan Disimpan', 'success');
-            }
+            updateHeaderUI(); updatePWA(); showToast('Pengaturan Disimpan', 'success');
+            fetchAPI('saveConfig', {key: 'settings', value: appSettings}, false);
         }
 
         // IMAGE COMPRESSOR (Mencegah payload GAS kebesaran)
@@ -994,11 +1076,11 @@
             const n = document.getElementById('new-cat-name').value.trim(); if(!n) return;
             const id = n.toLowerCase().replace(/[^a-z0-9]/g, '-'); if(categories.some(c => c.id === id)) return showToast('Sudah ada', 'error');
             categories.push({id, name: n}); 
-            const res = await fetchAPI('saveConfig', {key: 'categories', value: categories});
-            if(res) { document.getElementById('new-cat-name').value = ''; renderSettingsCategories(); renderCategories(); }
+            document.getElementById('new-cat-name').value = ''; renderSettingsCategories(); renderCategories();
+            fetchAPI('saveConfig', {key: 'categories', value: categories}, false);
         }
-        async function updateCat(id, n) { const c = categories.find(x => x.id === id); if(c && n.trim()) { c.name = n.trim(); await fetchAPI('saveConfig', {key: 'categories', value: categories}); renderCategories(); } }
-        async function deleteCat(id) { categories = categories.filter(c => c.id !== id); await fetchAPI('saveConfig', {key: 'categories', value: categories}); renderSettingsCategories(); renderCategories(); }
+        async function updateCat(id, n) { const c = categories.find(x => x.id === id); if(c && n.trim()) { c.name = n.trim(); renderCategories(); fetchAPI('saveConfig', {key: 'categories', value: categories}, false); } }
+        async function deleteCat(id) { categories = categories.filter(c => c.id !== id); renderSettingsCategories(); renderCategories(); fetchAPI('saveConfig', {key: 'categories', value: categories}, false); }
 
         function renderSettingsCharges() {
             const tb = document.getElementById('settings-charge-tbody'); tb.innerHTML = '';
@@ -1007,11 +1089,11 @@
         async function addCharge() {
             const n = document.getElementById('new-charge-name').value.trim(), v = parseFloat(document.getElementById('new-charge-val').value), t = document.getElementById('new-charge-type').value; if(!n || isNaN(v)) return;
             customCharges.push({ id: 'c_'+Date.now(), name: n, amount: v, isPercent: t.includes('pct'), isDeduction: t.includes('deduct'), active: true });
-            const res = await fetchAPI('saveConfig', {key: 'charges', value: customCharges});
-            if(res) { document.getElementById('new-charge-name').value = ''; document.getElementById('new-charge-val').value = ''; renderSettingsCharges(); updateCartUI(); }
+            document.getElementById('new-charge-name').value = ''; document.getElementById('new-charge-val').value = ''; renderSettingsCharges(); updateCartUI();
+            fetchAPI('saveConfig', {key: 'charges', value: customCharges}, false);
         }
-        async function toggleCharge(id) { const c = customCharges.find(x => x.id === id); if(c) { c.active = !c.active; await fetchAPI('saveConfig', {key: 'charges', value: customCharges}); renderSettingsCharges(); updateCartUI(); } }
-        async function delCharge(id) { customCharges = customCharges.filter(x => x.id !== id); await fetchAPI('saveConfig', {key: 'charges', value: customCharges}); renderSettingsCharges(); updateCartUI(); }
+        async function toggleCharge(id) { const c = customCharges.find(x => x.id === id); if(c) { c.active = !c.active; renderSettingsCharges(); updateCartUI(); fetchAPI('saveConfig', {key: 'charges', value: customCharges}, false); } }
+        async function delCharge(id) { customCharges = customCharges.filter(x => x.id !== id); renderSettingsCharges(); updateCartUI(); fetchAPI('saveConfig', {key: 'charges', value: customCharges}, false); }
 
         document.addEventListener('keydown', (e) => {
             if (!document.getElementById('success-modal').classList.contains('hidden')) return;
@@ -1021,14 +1103,12 @@
 
         // --- INIT APP CLOUD ---
         window.onload = async () => {
-            // Pasang fungsi default sementara menunggu sinkronisasi
             updateHeaderUI(); 
             updatePWA(); 
             renderActiveCashierSelect();
             renderCategories(); 
             renderProducts(currentProducts);
             
-            // Panggil API Cloud
             const initData = await fetchAPI('init');
             
             if(initData) {
@@ -1042,7 +1122,6 @@
                     if(initData.config.admins && initData.config.admins.length > 0) admins = initData.config.admins;
                 }
                 
-                // Segarkan UI setelah data didapat dari Cloud
                 updateHeaderUI(); 
                 updatePWA(); 
                 renderActiveCashierSelect();
